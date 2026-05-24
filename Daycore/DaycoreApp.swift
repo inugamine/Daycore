@@ -2,7 +2,7 @@
 //  DaycoreApp.swift
 //  Daycore
 //
-//  Created by Shouta on 2026/05/25.
+//  Created by inugaminé on 2026/05/25.
 //
 
 import SwiftUI
@@ -11,7 +11,10 @@ import SwiftUI
 struct DaycoreApp: App {
     var body: some Scene {
         WindowGroup {
-            ContentView()
+            NavigationStack {
+                ContentView()
+            }
+            .preferredColorScheme(.dark)
         }
     }
 }
