@@ -51,7 +51,7 @@ final class AudioEngineService: ObservableObject {
     }
     
     deinit {
-        stopDisplayLink()
+        displayLink?.invalidate()
         engine.stop()
     }
     

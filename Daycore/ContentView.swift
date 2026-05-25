@@ -7,38 +7,66 @@
 
 import SwiftUI
 
-/// メイン画面：プレーヤー + ライブラリシート
+/// メイン画面：iPhone ではシート表示、iPad では2ペインレイアウト
 struct ContentView: View {
     @StateObject private var viewModel = PlayerViewModel()
-    @State private var showingPlayer = false
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     
     var body: some View {
-        ZStack(alignment: .bottom) {
-            // プレーヤー画面
-            PlayerView(viewModel: viewModel)
-            
-            // ミニプレーヤーバー（ライブラリ表示中に見えるように）
-            // 現在の構成ではプレーヤーが常に見えるので不要だが、
-            // 将来的にタブ構成にした場合に使える
-        }
-        .preferredColorScheme(.dark)
-        .sheet(isPresented: $viewModel.showingLibrary) {
-            LibraryView(viewModel: viewModel)
-                .preferredColorScheme(.dark)
-        }
-        .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
-                Button {
-                    viewModel.showingLibrary = true
-                } label: {
-                    Image(systemName: "music.note.list")
-                        .foregroundColor(DaycoreTheme.accent)
-                }
+        Group {
+            if horizontalSizeClass == .regular {
+                // iPad / 大画面: 2ペインレイアウト
+                iPadLayout
+            } else {
+                // iPhone / コンパクト: 従来のシート表示
+                iPhoneLayout
             }
         }
+        .preferredColorScheme(.dark)
         .onAppear {
             viewModel.setupRemoteCommands()
             viewModel.musicLibrary.fetchLibrary()
+        }
+    }
+    
+    // MARK: - iPhone Layout
+    
+    private var iPhoneLayout: some View {
+        NavigationStack {
+            ZStack(alignment: .bottom) {
+                PlayerView(viewModel: viewModel)
+            }
+            .sheet(isPresented: $viewModel.showingLibrary) {
+                LibraryView(viewModel: viewModel)
+                    .preferredColorScheme(.dark)
+            }
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button {
+                        viewModel.showingLibrary = true
+                    } label: {
+                        Image(systemName: "music.note.list")
+                            .foregroundColor(DaycoreTheme.accent)
+                    }
+                }
+            }
+        }
+    }
+    
+    // MARK: - iPad Layout (2ペイン)
+    
+    private var iPadLayout: some View {
+        HStack(spacing: 0) {
+            // 左ペイン: ライブラリ
+            LibraryView(viewModel: viewModel)
+                .frame(minWidth: 320, maxWidth: 420)
+            
+            Divider()
+                .background(DaycoreTheme.divider)
+            
+            // 右ペイン: プレーヤー
+            PlayerView(viewModel: viewModel)
+                .frame(maxWidth: .infinity)
         }
     }
 }

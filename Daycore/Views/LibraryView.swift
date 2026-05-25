@@ -13,8 +13,12 @@ import MediaPlayer
 struct LibraryView: View {
     @ObservedObject var viewModel: PlayerViewModel
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @State private var selectedTab = 0
     @State private var showingFileImporter = false
+    
+    /// iPad の2ペイン表示かどうか
+    private var isCompact: Bool { horizontalSizeClass == .compact }
     
     var body: some View {
         NavigationStack {
@@ -45,9 +49,11 @@ struct LibraryView: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbarColorScheme(.dark, for: .navigationBar)
             .toolbar {
-                ToolbarItem(placement: .topBarLeading) {
-                    Button("閉じる") { dismiss() }
-                        .foregroundColor(DaycoreTheme.accent)
+                if isCompact {
+                    ToolbarItem(placement: .topBarLeading) {
+                        Button("閉じる") { dismiss() }
+                            .foregroundColor(DaycoreTheme.accent)
+                    }
                 }
                 
                 if selectedTab == 1 {
@@ -260,7 +266,7 @@ struct LibraryView: View {
                         .contentShape(Rectangle())
                         .onTapGesture {
                             viewModel.selectTrack(track)
-                            dismiss()
+                            if isCompact { dismiss() }
                         }
                         .contextMenu {
                             if canDelete {
