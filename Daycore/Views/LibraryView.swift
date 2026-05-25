@@ -21,43 +21,49 @@ struct LibraryView: View {
     private var isCompact: Bool { horizontalSizeClass == .compact }
     
     var body: some View {
-        NavigationStack {
-            ZStack {
-                DaycoreTheme.background
-                    .ignoresSafeArea()
-                
-                VStack(spacing: 0) {
-                    // タブ切り替え
-                    tabSelector
-                        .padding(.horizontal, 16)
-                        .padding(.top, 8)
-                    
-                    // 検索バー
-                    searchBar
-                        .padding(.horizontal, 16)
-                        .padding(.vertical, 12)
-                    
-                    // コンテンツ
-                    if selectedTab == 0 {
-                        libraryContent
-                    } else {
-                        importedContent
+        if isCompact {
+            // iPhone: NavigationStack でシート表示
+            NavigationStack {
+                libraryBody
+                    .navigationTitle("ライブラリ")
+                    .navigationBarTitleDisplayMode(.inline)
+                    .toolbarColorScheme(.dark, for: .navigationBar)
+                    .toolbar {
+                        ToolbarItem(placement: .topBarLeading) {
+                            Button("閉じる") { dismiss() }
+                                .foregroundColor(DaycoreTheme.accent)
+                        }
+                        if selectedTab == 1 {
+                            ToolbarItem(placement: .topBarTrailing) {
+                                Button {
+                                    showingFileImporter = true
+                                } label: {
+                                    Image(systemName: "plus.circle.fill")
+                                        .foregroundColor(DaycoreTheme.accent)
+                                }
+                            }
+                        }
                     }
+            }
+            .fileImporter(
+                isPresented: $showingFileImporter,
+                allowedContentTypes: [.audio, .mp3, .mpeg4Audio, .wav, .aiff],
+                allowsMultipleSelection: true
+            ) { result in
+                if case .success(let urls) = result {
+                    urls.forEach { viewModel.musicLibrary.importFile(at: $0) }
                 }
             }
-            .navigationTitle("ライブラリ")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbarColorScheme(.dark, for: .navigationBar)
-            .toolbar {
-                if isCompact {
-                    ToolbarItem(placement: .topBarLeading) {
-                        Button("閉じる") { dismiss() }
-                            .foregroundColor(DaycoreTheme.accent)
-                    }
-                }
-                
-                if selectedTab == 1 {
-                    ToolbarItem(placement: .topBarTrailing) {
+        } else {
+            // iPad: NavigationStack なし、カスタムヘッダー
+            VStack(spacing: 0) {
+                // ヘッダー
+                HStack {
+                    Text("ライブラリ")
+                        .font(.headline)
+                        .foregroundColor(DaycoreTheme.textPrimary)
+                    Spacer()
+                    if selectedTab == 1 {
                         Button {
                             showingFileImporter = true
                         } label: {
@@ -66,19 +72,44 @@ struct LibraryView: View {
                         }
                     }
                 }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 12)
+                
+                libraryBody
             }
+            .background(DaycoreTheme.background)
             .fileImporter(
                 isPresented: $showingFileImporter,
                 allowedContentTypes: [.audio, .mp3, .mpeg4Audio, .wav, .aiff],
                 allowsMultipleSelection: true
             ) { result in
-                switch result {
-                case .success(let urls):
-                    for url in urls {
-                        viewModel.musicLibrary.importFile(at: url)
-                    }
-                case .failure(let error):
-                    print("[LibraryView] インポートエラー: \(error)")
+                if case .success(let urls) = result {
+                    urls.forEach { viewModel.musicLibrary.importFile(at: $0) }
+                }
+            }
+        }
+    }
+    
+    // MARK: - Library Body (共通コンテンツ)
+    
+    private var libraryBody: some View {
+        ZStack {
+            DaycoreTheme.background
+                .ignoresSafeArea()
+            
+            VStack(spacing: 0) {
+                tabSelector
+                    .padding(.horizontal, 16)
+                    .padding(.top, 8)
+                
+                searchBar
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 12)
+                
+                if selectedTab == 0 {
+                    libraryContent
+                } else {
+                    importedContent
                 }
             }
         }
