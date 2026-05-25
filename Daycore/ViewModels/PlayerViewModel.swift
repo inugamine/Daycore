@@ -165,10 +165,12 @@ final class PlayerViewModel: ObservableObject {
         audioEngine.loadTrack(track)
         audioEngine.applyPreset(selectedPreset)
         audioEngine.play()
+        postNowPlayingUpdate()
     }
     
     func togglePlayPause() {
         audioEngine.togglePlayPause()
+        postNowPlayingUpdate()
     }
     
     func seekBegan() {
@@ -192,30 +194,29 @@ final class PlayerViewModel: ObservableObject {
         audioEngine.applyPreset(preset)
     }
     
-    // MARK: - Now Playing Info (ロック画面表示)
+    // MARK: - Now Playing Info（ロック画面表示）
     
-    private func setupNowPlaying() {
+    /// Swift 6 の @MainActor と MPNowPlayingInfoCenter が要求する
+    /// メインディスパッチキューがズレるため、
+    /// 値を先に取り出して DispatchQueue.main.async で直接書き込む
+    private func postNowPlayingUpdate() {
         guard let track = currentTrack else { return }
         
-        var info = [String: Any]()
-        info[MPMediaItemPropertyTitle] = track.title
-        info[MPMediaItemPropertyArtist] = track.artist
-        info[MPMediaItemPropertyPlaybackDuration] = duration
-        info[MPNowPlayingInfoPropertyElapsedPlaybackTime] = audioEngine.currentTime
-        info[MPNowPlayingInfoPropertyPlaybackRate] = audioEngine.isPlaying ? audioEngine.rate : 0
+        let title = track.title
+        let artist = track.artist
+        let dur = duration
+        let time = audioEngine.currentTime
+        let rate = audioEngine.isPlaying ? audioEngine.rate : Float(0)
         
-        if let artwork = track.artwork,
-           let image = artwork.image(at: CGSize(width: 600, height: 600)) {
-            info[MPMediaItemPropertyArtwork] = MPMediaItemArtwork(boundsSize: image.size) { _ in image }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+            var info = [String: Any]()
+            info[MPMediaItemPropertyTitle] = title
+            info[MPMediaItemPropertyArtist] = artist
+            info[MPMediaItemPropertyPlaybackDuration] = dur
+            info[MPNowPlayingInfoPropertyElapsedPlaybackTime] = time
+            info[MPNowPlayingInfoPropertyPlaybackRate] = rate
+            MPNowPlayingInfoCenter.default().nowPlayingInfo = info
         }
-        
-        MPNowPlayingInfoCenter.default().nowPlayingInfo = info
-    }
-    
-    private func updateNowPlaying() {
-        guard MPNowPlayingInfoCenter.default().nowPlayingInfo != nil else { return }
-        MPNowPlayingInfoCenter.default().nowPlayingInfo?[MPNowPlayingInfoPropertyElapsedPlaybackTime] = audioEngine.currentTime
-        MPNowPlayingInfoCenter.default().nowPlayingInfo?[MPNowPlayingInfoPropertyPlaybackRate] = audioEngine.isPlaying ? audioEngine.rate : 0
     }
     
     // MARK: - Remote Commands (ロック画面コントロール)
