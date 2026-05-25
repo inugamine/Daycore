@@ -42,8 +42,8 @@ final class MusicLibraryService: ObservableObject {
     
     /// ミュージックライブラリへのアクセスをリクエスト
     func requestAuthorization() {
-        MPMediaLibrary.requestAuthorization { [weak self] (status: MPMediaLibraryAuthorizationStatus) in
-            DispatchQueue.main.async {
+        MPMediaLibrary.requestAuthorization { status in
+            Task { @MainActor [weak self] in
                 self?.authorizationStatus = status
                 if status == .authorized {
                     self?.fetchLibrary()
@@ -59,9 +59,8 @@ final class MusicLibraryService: ObservableObject {
             return
         }
         
-        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+        Task.detached(priority: .userInitiated) {
             let query = MPMediaQuery.songs()
-            // DRM付きの曲を除外（assetURL が取れないもの）
             query.addFilterPredicate(
                 MPMediaPropertyPredicate(
                     value: false,
@@ -69,10 +68,10 @@ final class MusicLibraryService: ObservableObject {
                 )
             )
             
-            let tracks = (query.items ?? []).map { Track(mediaItem: $0) }
+            let items = query.items ?? []
             
-            DispatchQueue.main.async {
-                self?.libraryTracks = tracks
+            await MainActor.run { [weak self] in
+                self?.libraryTracks = items.map { Track(mediaItem: $0) }
             }
         }
     }
@@ -138,12 +137,10 @@ final class MusicLibraryService: ObservableObject {
                 duration: duration
             )
             
-            DispatchQueue.main.async { [weak self] in
-                // 重複チェック
-                if self?.importedTracks.contains(where: { $0.id == track.id }) == false {
-                    self?.importedTracks.append(track)
-                    self?.saveImportedTrackPaths()
-                }
+            // 重複チェック
+            if !importedTracks.contains(where: { $0.id == track.id }) {
+                importedTracks.append(track)
+                saveImportedTrackPaths()
             }
             
         } catch {

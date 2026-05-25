@@ -26,18 +26,18 @@ final class AudioEngineService: ObservableObject {
         didSet { timePitchNode.pitch = pitch * 100 } // semitones → cents
     }
     
-    // MARK: - Audio Nodes
+    // MARK: - Audio Nodes (nonisolated(unsafe) — deinit からのアクセスに必要)
     
-    private let engine = AVAudioEngine()
-    private let playerNode = AVAudioPlayerNode()
-    private let timePitchNode = AVAudioUnitTimePitch()
+    nonisolated(unsafe) private let engine = AVAudioEngine()
+    nonisolated(unsafe) private let playerNode = AVAudioPlayerNode()
+    nonisolated(unsafe) private let timePitchNode = AVAudioUnitTimePitch()
     
     // MARK: - State
     
     private var audioFile: AVAudioFile?
     private var seekFrame: AVAudioFramePosition = 0
     private var currentFileFrameLength: AVAudioFramePosition = 0
-    private var displayLink: CADisplayLink?
+    nonisolated(unsafe) private var displayLink: CADisplayLink?
     private var cancellables = Set<AnyCancellable>()
     
     /// トラック再生完了時のコールバック
