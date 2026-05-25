@@ -165,12 +165,10 @@ final class PlayerViewModel: ObservableObject {
         audioEngine.loadTrack(track)
         audioEngine.applyPreset(selectedPreset)
         audioEngine.play()
-        setupNowPlaying()
     }
     
     func togglePlayPause() {
         audioEngine.togglePlayPause()
-        updateNowPlaying()
     }
     
     func seekBegan() {

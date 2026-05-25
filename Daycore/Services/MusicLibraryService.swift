@@ -59,21 +59,15 @@ final class MusicLibraryService: ObservableObject {
             return
         }
         
-        Task.detached(priority: .userInitiated) {
-            let query = MPMediaQuery.songs()
-            query.addFilterPredicate(
-                MPMediaPropertyPredicate(
-                    value: false,
-                    forProperty: MPMediaItemPropertyIsCloudItem
-                )
+        let query = MPMediaQuery.songs()
+        query.addFilterPredicate(
+            MPMediaPropertyPredicate(
+                value: false,
+                forProperty: MPMediaItemPropertyIsCloudItem
             )
-            
-            let items = query.items ?? []
-            
-            await MainActor.run { [weak self] in
-                self?.libraryTracks = items.map { Track(mediaItem: $0) }
-            }
-        }
+        )
+        
+        libraryTracks = (query.items ?? []).map { Track(mediaItem: $0) }
     }
     
     // MARK: - File Import
