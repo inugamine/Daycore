@@ -17,15 +17,42 @@ struct PlayerView: View {
     
     var body: some View {
         ZStack {
-            // 背景
             DaycoreTheme.backgroundGradient
                 .ignoresSafeArea()
             
             if let track = viewModel.currentTrack {
-                playerContent(track)
+                GeometryReader { geo in
+                    let layout = PlayerLayout(height: geo.size.height, width: geo.size.width)
+                    playerContent(track, layout: layout)
+                }
             } else {
                 emptyState
             }
+        }
+    }
+    
+    // MARK: - Layout 計算
+    
+    /// 画面サイズに応じたレイアウト値
+    private struct PlayerLayout {
+        let artworkSize: CGFloat
+        let artworkCorner: CGFloat
+        let playButtonSize: CGFloat
+        let spacing: CGFloat
+        let horizontalPadding: CGFloat
+        let sliderSpacing: CGFloat
+        
+        init(height: CGFloat, width: CGFloat) {
+            let h = height
+            // アートワーク: 高さの30%、ただし最小100 最大300
+            artworkSize = min(max(h * 0.30, 100), 300)
+            artworkCorner = artworkSize * 0.07
+            // 再生ボタン: 高さに応じてスケール
+            playButtonSize = min(max(h * 0.075, 44), 64)
+            // 要素間のスペーシング
+            spacing = max(h * 0.015, 4)
+            horizontalPadding = min(width * 0.06, 24)
+            sliderSpacing = max(h * 0.01, 4)
         }
     }
     
@@ -64,47 +91,45 @@ struct PlayerView: View {
     
     // MARK: - Player Content
     
-    private func playerContent(_ track: Track) -> some View {
-        ScrollView(showsIndicators: false) {
-            VStack(spacing: 0) {
-                Spacer(minLength: 20)
+    private func playerContent(_ track: Track, layout: PlayerLayout) -> some View {
+        VStack(spacing: layout.spacing) {
+            Spacer(minLength: 0)
             
             // アートワーク
-            artworkView(track)
-                .padding(.bottom, 32)
+            artworkView(track, size: layout.artworkSize, corner: layout.artworkCorner)
             
             // トラック情報
             trackInfo(track)
-                .padding(.bottom, 24)
+                .padding(.top, layout.spacing)
             
             // シークバー
             seekBar
-                .padding(.horizontal, 24)
-                .padding(.bottom, 20)
+                .padding(.horizontal, layout.horizontalPadding)
+                .padding(.top, layout.spacing)
             
             // 再生コントロール
-            playbackControls
-                .padding(.bottom, 28)
+            playbackControls(buttonSize: layout.playButtonSize)
+                .padding(.top, layout.spacing)
             
             // プリセットセレクタ
             presetSelector
-                .padding(.bottom, 16)
+                .padding(.top, layout.spacing)
             
             // Rate / Pitch スライダー
-            parameterSliders
-                .padding(.horizontal, 24)
+            parameterSliders(spacing: layout.sliderSpacing)
+                .padding(.horizontal, layout.horizontalPadding)
+                .padding(.top, layout.spacing)
             
-                Spacer(minLength: 20)
-            }
+            Spacer(minLength: 0)
         }
     }
     
     // MARK: - Artwork
     
-    private func artworkView(_ track: Track) -> some View {
+    private func artworkView(_ track: Track, size: CGFloat, corner: CGFloat) -> some View {
         Group {
             if let artwork = track.artwork,
-               let image = artwork.image(at: CGSize(width: 300, height: 300)) {
+               let image = artwork.image(at: CGSize(width: size, height: size)) {
                 Image(uiImage: image)
                     .resizable()
                     .aspectRatio(contentMode: .fill)
@@ -112,20 +137,20 @@ struct PlayerView: View {
                 ZStack {
                     DaycoreTheme.surface
                     Image(systemName: "music.note")
-                        .font(.system(size: 60))
+                        .font(.system(size: size * 0.2))
                         .foregroundColor(DaycoreTheme.accent)
                 }
             }
         }
-        .frame(width: 280, height: 280)
-        .clipShape(RoundedRectangle(cornerRadius: 20))
-        .shadow(color: DaycoreTheme.accentGlow, radius: 30, y: 10)
+        .frame(width: size, height: size)
+        .clipShape(RoundedRectangle(cornerRadius: corner))
+        .shadow(color: DaycoreTheme.accentGlow, radius: 20, y: 8)
     }
     
     // MARK: - Track Info
     
     private func trackInfo(_ track: Track) -> some View {
-        VStack(spacing: 6) {
+        VStack(spacing: 4) {
             Text(track.title)
                 .font(.title3.bold())
                 .foregroundColor(DaycoreTheme.textPrimary)
@@ -142,7 +167,7 @@ struct PlayerView: View {
     // MARK: - Seek Bar
     
     private var seekBar: some View {
-        VStack(spacing: 4) {
+        VStack(spacing: 2) {
             Slider(
                 value: Binding(
                     get: { viewModel.displayTime },
@@ -150,11 +175,8 @@ struct PlayerView: View {
                 ),
                 in: 0...max(viewModel.duration, 0.01),
                 onEditingChanged: { editing in
-                    if editing {
-                        viewModel.seekBegan()
-                    } else {
-                        viewModel.seekEnded()
-                    }
+                    if editing { viewModel.seekBegan() }
+                    else { viewModel.seekEnded() }
                 }
             )
             .tint(DaycoreTheme.accent)
@@ -171,53 +193,42 @@ struct PlayerView: View {
     
     // MARK: - Playback Controls
     
-    private var playbackControls: some View {
-        HStack(spacing: 28) {
-            // シャッフル
-            Button {
-                viewModel.toggleShuffle()
-            } label: {
+    private func playbackControls(buttonSize: CGFloat) -> some View {
+        HStack(spacing: buttonSize * 0.45) {
+            Button { viewModel.toggleShuffle() } label: {
                 Image(systemName: "shuffle")
-                    .font(.body)
+                    .font(.system(size: buttonSize * 0.3))
                     .foregroundColor(viewModel.isShuffled ? DaycoreTheme.accent : DaycoreTheme.textMuted)
             }
             
-            // 15秒戻る
             Button {
                 let newTime = max(0, viewModel.audioEngine.currentTime - 15)
                 viewModel.audioEngine.seek(to: newTime)
             } label: {
                 Image(systemName: "gobackward.15")
-                    .font(.title3)
+                    .font(.system(size: buttonSize * 0.45))
                     .foregroundColor(DaycoreTheme.textPrimary)
             }
             
-            // 再生/一時停止
-            Button {
-                viewModel.togglePlayPause()
-            } label: {
+            Button { viewModel.togglePlayPause() } label: {
                 Image(systemName: viewModel.isPlaying ? "pause.circle.fill" : "play.circle.fill")
-                    .font(.system(size: 64))
+                    .font(.system(size: buttonSize))
                     .foregroundStyle(DaycoreTheme.accentGradient)
-                    .shadow(color: DaycoreTheme.accentGlow, radius: 12)
+                    .shadow(color: DaycoreTheme.accentGlow, radius: 10)
             }
             
-            // 15秒進む
             Button {
                 let newTime = min(viewModel.duration, viewModel.audioEngine.currentTime + 15)
                 viewModel.audioEngine.seek(to: newTime)
             } label: {
                 Image(systemName: "goforward.15")
-                    .font(.title3)
+                    .font(.system(size: buttonSize * 0.45))
                     .foregroundColor(DaycoreTheme.textPrimary)
             }
             
-            // リピート
-            Button {
-                viewModel.toggleRepeatMode()
-            } label: {
+            Button { viewModel.toggleRepeatMode() } label: {
                 Image(systemName: viewModel.repeatMode.icon)
-                    .font(.body)
+                    .font(.system(size: buttonSize * 0.3))
                     .foregroundColor(viewModel.repeatMode.isActive ? DaycoreTheme.accent : DaycoreTheme.textMuted)
             }
         }
@@ -266,9 +277,8 @@ struct PlayerView: View {
     
     // MARK: - Parameter Sliders
     
-    private var parameterSliders: some View {
-        VStack(spacing: 16) {
-            // Rate (速度)
+    private func parameterSliders(spacing: CGFloat) -> some View {
+        VStack(spacing: spacing) {
             DaycoreSlider(
                 label: "Speed",
                 value: Binding(
@@ -280,7 +290,6 @@ struct PlayerView: View {
                 displayFormat: "%.2fx"
             )
             
-            // Pitch
             DaycoreSlider(
                 label: "Pitch",
                 value: Binding(
