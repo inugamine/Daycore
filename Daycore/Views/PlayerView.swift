@@ -11,6 +11,9 @@ import MediaPlayer
 /// メインプレーヤー画面
 struct PlayerView: View {
     @ObservedObject var viewModel: PlayerViewModel
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    
+    private var isCompact: Bool { horizontalSizeClass == .compact }
     
     var body: some View {
         ZStack {
@@ -42,26 +45,29 @@ struct PlayerView: View {
                 .font(.subheadline)
                 .foregroundColor(DaycoreTheme.textSecondary)
             
-            Button {
-                viewModel.showingLibrary = true
-            } label: {
-                Label("ライブラリを開く", systemImage: "music.note.list")
-                    .font(.headline)
-                    .foregroundColor(.white)
-                    .padding(.horizontal, 32)
-                    .padding(.vertical, 14)
-                    .background(DaycoreTheme.accentGradient)
-                    .clipShape(Capsule())
+            if isCompact {
+                Button {
+                    viewModel.showingLibrary = true
+                } label: {
+                    Label("ライブラリを開く", systemImage: "music.note.list")
+                        .font(.headline)
+                        .foregroundColor(.white)
+                        .padding(.horizontal, 32)
+                        .padding(.vertical, 14)
+                        .background(DaycoreTheme.accentGradient)
+                        .clipShape(Capsule())
+                }
+                .padding(.top, 12)
             }
-            .padding(.top, 12)
         }
     }
     
     // MARK: - Player Content
     
     private func playerContent(_ track: Track) -> some View {
-        VStack(spacing: 0) {
-            Spacer()
+        ScrollView(showsIndicators: false) {
+            VStack(spacing: 0) {
+                Spacer(minLength: 20)
             
             // アートワーク
             artworkView(track)
@@ -88,7 +94,8 @@ struct PlayerView: View {
             parameterSliders
                 .padding(.horizontal, 24)
             
-            Spacer()
+                Spacer(minLength: 20)
+            }
         }
     }
     
