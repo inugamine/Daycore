@@ -26,6 +26,30 @@ final class PlayerViewModel: ObservableObject {
     @Published var showingLibrary = false
     @Published var showingFileImporter = false
     @Published var isSeeking = false
+    @Published var repeatMode: RepeatMode = .off
+    @Published var isShuffled = false
+    
+    enum RepeatMode: CaseIterable {
+        case off, all, one
+        
+        var icon: String {
+            switch self {
+            case .off:  return "repeat"
+            case .all:  return "repeat"
+            case .one:  return "repeat.1"
+            }
+        }
+        
+        var isActive: Bool { self != .off }
+        
+        func next() -> RepeatMode {
+            switch self {
+            case .off:  return .one
+            case .one:  return .all
+            case .all:  return .off
+            }
+        }
+    }
     
     // スライダー用（シーク中はユーザーの操作値を保持）
     @Published var seekTime: TimeInterval = 0
@@ -74,6 +98,64 @@ final class PlayerViewModel: ObservableObject {
         
         // 初期プリセット適用
         audioEngine.applyPreset(selectedPreset)
+        
+        // トラック終了時のハンドラ
+        audioEngine.onTrackFinished = { [weak self] in
+            self?.handleTrackFinished()
+        }
+    }
+    
+    // MARK: - Repeat & Shuffle
+    
+    func toggleRepeatMode() {
+        repeatMode = repeatMode.next()
+    }
+    
+    func toggleShuffle() {
+        isShuffled.toggle()
+    }
+    
+    private func handleTrackFinished() {
+        switch repeatMode {
+        case .one:
+            // 1曲リピート: 同じ曲を再生
+            audioEngine.seek(to: 0)
+            audioEngine.play()
+        case .all:
+            // 全曲リピート: 次の曲へ（プレイリスト未実装のため現状は同じ曲をリピート）
+            playNextTrack()
+        case .off:
+            break // 停止のまま
+        }
+    }
+    
+    private func playNextTrack() {
+        let allTracks = musicLibrary.filteredTracks
+        guard !allTracks.isEmpty, let current = currentTrack else {
+            // 曲がない場合は同じ曲をリプレイ
+            audioEngine.seek(to: 0)
+            audioEngine.play()
+            return
+        }
+        
+        if isShuffled {
+            // シャッフル: ランダムに次の曲を選ぶ
+            let candidates = allTracks.filter { $0.id != current.id }
+            if let next = candidates.randomElement() {
+                selectTrack(next)
+            } else {
+                selectTrack(current)
+            }
+        } else {
+            // 順序再生: 次の曲へ
+            if let idx = allTracks.firstIndex(where: { $0.id == current.id }) {
+                let nextIdx = (idx + 1) % allTracks.count
+                selectTrack(allTracks[nextIdx])
+            } else {
+                audioEngine.seek(to: 0)
+                audioEngine.play()
+            }
+        }
     }
     
     // MARK: - Playback

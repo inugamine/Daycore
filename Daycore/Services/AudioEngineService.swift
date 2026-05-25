@@ -40,6 +40,9 @@ final class AudioEngineService: ObservableObject {
     private var displayLink: CADisplayLink?
     private var cancellables = Set<AnyCancellable>()
     
+    /// トラック再生完了時のコールバック
+    var onTrackFinished: (() -> Void)?
+    
     // MARK: - Init
     
     init() {
@@ -243,6 +246,7 @@ final class AudioEngineService: ObservableObject {
         // 再生完了チェック
         if elapsedFrames >= currentFileFrameLength {
             stop()
+            onTrackFinished?()
         }
     }
 }

@@ -30,7 +30,7 @@ struct PlayerView: View {
     
     private var emptyState: some View {
         VStack(spacing: 20) {
-            Image(systemName: "moon.stars")
+            Image(systemName: "waveform")
                 .font(.system(size: 80))
                 .foregroundStyle(DaycoreTheme.accentGradient)
             
@@ -165,14 +165,23 @@ struct PlayerView: View {
     // MARK: - Playback Controls
     
     private var playbackControls: some View {
-        HStack(spacing: 48) {
+        HStack(spacing: 28) {
+            // シャッフル
+            Button {
+                viewModel.toggleShuffle()
+            } label: {
+                Image(systemName: "shuffle")
+                    .font(.body)
+                    .foregroundColor(viewModel.isShuffled ? DaycoreTheme.accent : DaycoreTheme.textMuted)
+            }
+            
             // 15秒戻る
             Button {
                 let newTime = max(0, viewModel.audioEngine.currentTime - 15)
                 viewModel.audioEngine.seek(to: newTime)
             } label: {
                 Image(systemName: "gobackward.15")
-                    .font(.title2)
+                    .font(.title3)
                     .foregroundColor(DaycoreTheme.textPrimary)
             }
             
@@ -192,8 +201,17 @@ struct PlayerView: View {
                 viewModel.audioEngine.seek(to: newTime)
             } label: {
                 Image(systemName: "goforward.15")
-                    .font(.title2)
+                    .font(.title3)
                     .foregroundColor(DaycoreTheme.textPrimary)
+            }
+            
+            // リピート
+            Button {
+                viewModel.toggleRepeatMode()
+            } label: {
+                Image(systemName: viewModel.repeatMode.icon)
+                    .font(.body)
+                    .foregroundColor(viewModel.repeatMode.isActive ? DaycoreTheme.accent : DaycoreTheme.textMuted)
             }
         }
     }
