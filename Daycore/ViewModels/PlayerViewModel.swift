@@ -118,14 +118,12 @@ final class PlayerViewModel: ObservableObject {
     private func handleTrackFinished() {
         switch repeatMode {
         case .one:
-            // 1曲リピート: 同じ曲を再生
-            audioEngine.seek(to: 0)
-            audioEngine.play()
+            // 1曲リピート: エンジンを止めずに先頭から再スケジュール
+            audioEngine.replay()
         case .all:
-            // 全曲リピート: 次の曲へ（プレイリスト未実装のため現状は同じ曲をリピート）
             playNextTrack()
         case .off:
-            break // 停止のまま
+            break
         }
     }
     

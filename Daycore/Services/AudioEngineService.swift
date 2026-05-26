@@ -39,6 +39,7 @@ final class AudioEngineService: ObservableObject {
     private var currentFileFrameLength: AVAudioFramePosition = 0
     nonisolated(unsafe) private var displayLink: CADisplayLink?
     private var cancellables = Set<AnyCancellable>()
+    private var playbackGeneration: Int = 0
     
     /// トラック再生完了時のコールバック
     var onTrackFinished: (() -> Void)?
@@ -84,6 +85,7 @@ final class AudioEngineService: ObservableObject {
     
     /// トラックを読み込む
     func loadTrack(_ track: Track) {
+        playbackGeneration += 1
         stop()
         
         do {
@@ -131,7 +133,13 @@ final class AudioEngineService: ObservableObject {
             }
         }
         
+        // 現在位置を seekFrame から再計算（曲切り替え時の残留値防止）
+        if let sampleRate = audioFile?.processingFormat.sampleRate, sampleRate > 0 {
+            currentTime = Double(seekFrame) / sampleRate
+        }
+        
         // 残りのフレーム数を計算してスケジュール
+        let gen = playbackGeneration
         let remainingFrames = AVAudioFrameCount(currentFileFrameLength - seekFrame)
         guard remainingFrames > 0 else {
             // 最後まで再生済み → 先頭に戻す
@@ -141,8 +149,11 @@ final class AudioEngineService: ObservableObject {
                 file,
                 startingFrame: 0,
                 frameCount: allFrames,
-                at: nil
-            )
+                at: nil,
+                completionCallbackType: .dataPlayedBack
+            ) { [weak self] _ in
+                self?.handlePlaybackComplete(generation: gen)
+            }
             playerNode.play()
             isPlaying = true
             startDisplayLink()
@@ -153,8 +164,11 @@ final class AudioEngineService: ObservableObject {
             file,
             startingFrame: seekFrame,
             frameCount: remainingFrames,
-            at: nil
-        )
+            at: nil,
+            completionCallbackType: .dataPlayedBack
+        ) { [weak self] _ in
+            self?.handlePlaybackComplete(generation: gen)
+        }
         playerNode.play()
         isPlaying = true
         startDisplayLink()
@@ -188,9 +202,36 @@ final class AudioEngineService: ObservableObject {
         }
     }
     
+    /// エンジンを止めずに先頭から再スケジュール（リピート用、無音なし）
+    func replay() {
+        guard let file = audioFile else { return }
+        
+        playerNode.stop()
+        seekFrame = 0
+        currentTime = 0
+        
+        let allFrames = AVAudioFrameCount(currentFileFrameLength)
+        let gen = playbackGeneration
+        playerNode.scheduleSegment(
+            file,
+            startingFrame: 0,
+            frameCount: allFrames,
+            at: nil,
+            completionCallbackType: .dataPlayedBack
+        ) { [weak self] _ in
+            self?.handlePlaybackComplete(generation: gen)
+        }
+        playerNode.play()
+        isPlaying = true
+        startDisplayLink()
+    }
+    
     /// 指定した時間（秒）にシークする
     func seek(to time: TimeInterval) {
         guard let file = audioFile else { return }
+        
+        playbackGeneration += 1
+        let gen = playbackGeneration
         
         let sampleRate = file.processingFormat.sampleRate
         let targetFrame = AVAudioFramePosition(time * sampleRate)
@@ -208,8 +249,11 @@ final class AudioEngineService: ObservableObject {
                 file,
                 startingFrame: seekFrame,
                 frameCount: remainingFrames,
-                at: nil
-            )
+                at: nil,
+                completionCallbackType: .dataPlayedBack
+            ) { [weak self] _ in
+                self?.handlePlaybackComplete(generation: gen)
+            }
             playerNode.play()
         }
     }
@@ -243,10 +287,18 @@ final class AudioEngineService: ObservableObject {
         let elapsedFrames = playerTime.sampleTime + seekFrame
         currentTime = Double(elapsedFrames) / sampleRate
         
-        // 再生完了チェック
+        // 再生完了チェック（画面点灯時のフォールバック、主な検知は完了コールバックで行う）
         if elapsedFrames >= currentFileFrameLength {
-            stop()
-            onTrackFinished?()
+            currentTime = duration
+        }
+    }
+    
+    /// オーディオスレッドからの再生完了通知（画面オフでも動作）
+    private func handlePlaybackComplete(generation: Int) {
+        DispatchQueue.main.async { [weak self] in
+            guard let self = self, generation == self.playbackGeneration else { return }
+            self.stop()
+            self.onTrackFinished?()
         }
     }
 }
