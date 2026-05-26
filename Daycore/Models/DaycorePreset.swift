@@ -21,12 +21,12 @@ struct AudioPreset: Identifiable, Equatable {
     )
     
     static let daycoreSoft = AudioPreset(
-        id: "daycore_soft", name: "Daycore Soft", icon: "sun.min.fill",
+        id: "daycore_soft", name: "Daycore Soft", icon: "sun.max",
         rate: 0.92, pitch: -1.5
     )
     
     static let daycore = AudioPreset(
-        id: "daycore", name: "Daycore", icon: "sun.max",
+        id: "daycore", name: "Daycore", icon: "sun.min.fill",
         rate: 0.86, pitch: -2.5
     )
     
@@ -37,7 +37,7 @@ struct AudioPreset: Identifiable, Equatable {
     
     static let nightcore = AudioPreset(
         id: "nightcore", name: "Nightcore", icon: "moon.stars.fill",
-        rate: 1.25, pitch: 3.0
+        rate: 1.15, pitch: 1.5
     )
     
     static let allPresets: [AudioPreset] = [
