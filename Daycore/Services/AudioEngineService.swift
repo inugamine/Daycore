@@ -61,10 +61,106 @@ final class AudioEngineService: ObservableObject {
     private func setupAudioSession() {
         do {
             let session = AVAudioSession.sharedInstance()
-            try session.setCategory(.playback, mode: .default)
+            try session.setCategory(.playback, mode: .default, options: [.allowBluetoothA2DP])
             try session.setActive(true)
         } catch {
             print("[AudioEngine] セッション設定失敗: \(error)")
+        }
+        
+        // オーディオルート変更監視（Bluetooth 接続/切断時）
+        NotificationCenter.default.addObserver(
+            forName: AVAudioSession.routeChangeNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] notification in
+            guard let info = notification.userInfo,
+                  let reasonValue = info[AVAudioSessionRouteChangeReasonKey] as? UInt,
+                  let reason = AVAudioSession.RouteChangeReason(rawValue: reasonValue) else { return }
+            self?.handleRouteChange(reason: reason)
+        }
+        
+        // オーディオセッション中断ハンドリング
+        NotificationCenter.default.addObserver(
+            forName: AVAudioSession.interruptionNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] notification in
+            guard let info = notification.userInfo,
+                  let typeValue = info[AVAudioSessionInterruptionTypeKey] as? UInt,
+                  let type = AVAudioSession.InterruptionType(rawValue: typeValue) else { return }
+            let shouldResume: Bool
+            if type == .ended {
+                let options = info[AVAudioSessionInterruptionOptionKey] as? UInt ?? 0
+                shouldResume = AVAudioSession.InterruptionOptions(rawValue: options).contains(.shouldResume)
+            } else {
+                shouldResume = false
+            }
+            self?.handleInterruption(type: type, shouldResume: shouldResume)
+        }
+    }
+    
+    // MARK: - Route Change
+    
+    private func handleRouteChange(reason: AVAudioSession.RouteChangeReason) {
+        switch reason {
+        case .newDeviceAvailable:
+            // Bluetooth 接続等: エンジンが止まっていたら再構築
+            rebuildEngineIfNeeded()
+        case .oldDeviceUnavailable:
+            // Bluetooth 切断等: エンジンを停止してノードを再接続
+            let savedTime = currentTime
+            let savedSeekFrame = seekFrame
+            
+            playbackGeneration += 1 // 古い完了コールバックを無効化
+            playerNode.stop()
+            engine.stop()
+            isPlaying = false
+            stopDisplayLink()
+            
+            // ノードを新しいフォーマットで再接続
+            engine.disconnectNodeOutput(playerNode)
+            engine.disconnectNodeOutput(timePitchNode)
+            engine.connect(playerNode, to: timePitchNode, format: nil)
+            engine.connect(timePitchNode, to: engine.mainMixerNode, format: nil)
+            
+            // 再生位置を保持（再生ボタンで続きから再開）
+            seekFrame = savedSeekFrame
+            currentTime = savedTime
+        default:
+            rebuildEngineIfNeeded()
+        }
+    }
+    
+    private func rebuildEngineIfNeeded() {
+        guard !engine.isRunning else { return }
+        
+        do {
+            let session = AVAudioSession.sharedInstance()
+            try session.setActive(true)
+        } catch {
+            print("[AudioEngine] セッション再アクティベート失敗: \(error)")
+        }
+        
+        engine.disconnectNodeOutput(playerNode)
+        engine.disconnectNodeOutput(timePitchNode)
+        engine.connect(playerNode, to: timePitchNode, format: nil)
+        engine.connect(timePitchNode, to: engine.mainMixerNode, format: nil)
+        
+        do {
+            try engine.start()
+        } catch {
+            print("[AudioEngine] エンジン再起動失敗: \(error)")
+        }
+    }
+    
+    private func handleInterruption(type: AVAudioSession.InterruptionType, shouldResume: Bool) {
+        switch type {
+        case .began:
+            pause()
+        case .ended:
+            if shouldResume { play() }
+        @unknown default:
+            break
         }
     }
     
