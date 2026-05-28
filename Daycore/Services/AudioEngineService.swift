@@ -107,9 +107,14 @@ final class AudioEngineService: ObservableObject {
             // Bluetooth 接続等: エンジンが止まっていたら再構築
             rebuildEngineIfNeeded()
         case .oldDeviceUnavailable:
-            // Bluetooth 切断等: エンジンを停止してノードを再接続
-            let savedTime = currentTime
-            let savedSeekFrame = seekFrame
+            // Bluetooth 切断等: 停止前に最新の再生位置を取得
+            var savedSeekFrame = seekFrame
+            if let nodeTime = playerNode.lastRenderTime,
+               let playerTime = playerNode.playerTime(forNodeTime: nodeTime) {
+                savedSeekFrame = playerTime.sampleTime + seekFrame
+            }
+            let sampleRate = audioFile?.processingFormat.sampleRate ?? 44100
+            let savedTime = Double(savedSeekFrame) / sampleRate
             
             playbackGeneration += 1 // 古い完了コールバックを無効化
             playerNode.stop()
