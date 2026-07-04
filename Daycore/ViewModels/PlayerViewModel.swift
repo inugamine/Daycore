@@ -8,6 +8,8 @@
 import Foundation
 import Combine
 import MediaPlayer
+import UIKit
+import AVFoundation
 
 /// プレーヤー画面の ViewModel
 /// AudioEngineService と MusicLibraryService を橋渡しする
@@ -206,6 +208,9 @@ final class PlayerViewModel: ObservableObject {
         let time = audioEngine.currentTime
         let rate = audioEngine.isPlaying ? audioEngine.rate : Float(0)
         
+        // ※ Now Playing へのアートワーク設定は、Swift 6 + MPMediaItemArtwork の
+        // dispatch_assert_queue_fail クラッシュが未解決のため現在無効化している。
+        // ファイル埋め込み画像の読み出し loadArtwork() は将来のプレーヤー画面対応用に残してある。
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
             var info = [String: Any]()
             info[MPMediaItemPropertyTitle] = title
@@ -215,6 +220,22 @@ final class PlayerViewModel: ObservableObject {
             info[MPNowPlayingInfoPropertyPlaybackRate] = rate
             MPNowPlayingInfoCenter.default().nowPlayingInfo = info
         }
+    }
+    
+    /// ファイルに埋め込まれたアートワーク画像を読み出す（MP3/M4A 等）
+    nonisolated static func loadArtwork(from url: URL) -> UIImage? {
+        let accessed = url.startAccessingSecurityScopedResource()
+        defer {
+            if accessed { url.stopAccessingSecurityScopedResource() }
+        }
+        
+        let asset = AVURLAsset(url: url)
+        for item in asset.commonMetadata where item.commonKey == .commonKeyArtwork {
+            if let data = item.dataValue, let image = UIImage(data: data) {
+                return image
+            }
+        }
+        return nil
     }
     
     // MARK: - Remote Commands (ロック画面コントロール)
