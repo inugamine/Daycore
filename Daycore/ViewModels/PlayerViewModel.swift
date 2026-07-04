@@ -58,6 +58,9 @@ final class PlayerViewModel: ObservableObject {
     
     private var cancellables = Set<AnyCancellable>()
     
+    /// 現在のトラックのアートワーク画像（Now Playing 表示用キャッシュ）
+    private var currentArtworkImage: UIImage?
+    
     // MARK: - Computed Properties
     
     var isPlaying: Bool { audioEngine.isPlaying }
@@ -162,6 +165,7 @@ final class PlayerViewModel: ObservableObject {
     
     func selectTrack(_ track: Track) {
         currentTrack = track
+        loadArtworkForCurrentTrack(track)
         audioEngine.loadTrack(track)
         audioEngine.applyPreset(selectedPreset)
         audioEngine.play()
@@ -208,9 +212,12 @@ final class PlayerViewModel: ObservableObject {
         let time = audioEngine.currentTime
         let rate = audioEngine.isPlaying ? audioEngine.rate : Float(0)
         
-        // ※ Now Playing へのアートワーク設定は、Swift 6 + MPMediaItemArtwork の
-        // dispatch_assert_queue_fail クラッシュが未解決のため現在無効化している。
-        // ファイル埋め込み画像の読み出し loadArtwork() は将来のプレーヤー画面対応用に残してある。
+        // アートワークは Sendable な UIImage としてここで取り出し、
+        // MPMediaItemArtwork の生成は nonisolated ファクトリに任せる。
+        // （@MainActor 文脈で生成すると requestHandler が MainActor 隔離を継承し、
+        //   システムが別スレッドから呼んだ瞬間に dispatch_assert_queue_fail で落ちる）
+        let artworkImage = currentArtworkImage
+        
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
             var info = [String: Any]()
             info[MPMediaItemPropertyTitle] = title
@@ -218,8 +225,42 @@ final class PlayerViewModel: ObservableObject {
             info[MPMediaItemPropertyPlaybackDuration] = dur
             info[MPNowPlayingInfoPropertyElapsedPlaybackTime] = time
             info[MPNowPlayingInfoPropertyPlaybackRate] = rate
+            if let artworkImage {
+                info[MPMediaItemPropertyArtwork] = Self.makeNowPlayingArtwork(artworkImage)
+            }
             MPNowPlayingInfoCenter.default().nowPlayingInfo = info
         }
+    }
+    
+    /// 現在のトラックのアートワーク画像を読み込んでキャッシュする
+    private func loadArtworkForCurrentTrack(_ track: Track) {
+        switch track.source {
+        case .library:
+            // MPMediaItemArtwork.image(at:) はメインスレッドで呼ぶこと
+            currentArtworkImage = track.artwork?.image(at: CGSize(width: 600, height: 600))
+        case .file(let url):
+            currentArtworkImage = nil
+            let trackID = track.id
+            // ファイル埋め込み画像の読み出しは重いのでバックグラウンドで実行
+            Task.detached(priority: .utility) { [weak self] in
+                let image = PlayerViewModel.loadArtwork(from: url)
+                await self?.applyLoadedArtwork(image, forTrackID: trackID)
+            }
+        }
+    }
+    
+    /// バックグラウンド読み込み完了後にアートワークを反映する
+    private func applyLoadedArtwork(_ image: UIImage?, forTrackID id: String) {
+        guard currentTrack?.id == id, let image else { return }
+        currentArtworkImage = image
+        postNowPlayingUpdate()
+    }
+    
+    /// MPMediaItemArtwork を nonisolated 文脈で生成するファクトリ。
+    /// requestHandler が actor 隔離を継承しないようにするのが唯一の目的だ。
+    /// UIImage は不変で Sendable なのでどのスレッドから返しても安全。
+    nonisolated private static func makeNowPlayingArtwork(_ image: UIImage) -> MPMediaItemArtwork {
+        MPMediaItemArtwork(boundsSize: image.size) { _ in image }
     }
     
     /// ファイルに埋め込まれたアートワーク画像を読み出す（MP3/M4A 等）
