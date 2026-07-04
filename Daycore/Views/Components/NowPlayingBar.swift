@@ -66,8 +66,7 @@ struct NowPlayingBar: View {
     
     private func miniArtwork(_ track: Track) -> some View {
         Group {
-            if let artwork = track.artwork,
-               let image = artwork.image(at: CGSize(width: 44, height: 44)) {
+            if let image = viewModel.currentArtworkImage {
                 Image(uiImage: image)
                     .resizable()
                     .aspectRatio(contentMode: .fill)

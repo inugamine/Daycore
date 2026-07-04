@@ -58,8 +58,8 @@ final class PlayerViewModel: ObservableObject {
     
     private var cancellables = Set<AnyCancellable>()
     
-    /// 現在のトラックのアートワーク画像（Now Playing 表示用キャッシュ）
-    private var currentArtworkImage: UIImage?
+    /// 現在のトラックのアートワーク画像（Now Playing・再生画面 共用キャッシュ）
+    @Published private(set) var currentArtworkImage: UIImage?
     
     // MARK: - Computed Properties
     

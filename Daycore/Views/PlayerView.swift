@@ -128,8 +128,9 @@ struct PlayerView: View {
     
     private func artworkView(_ track: Track, size: CGFloat, corner: CGFloat) -> some View {
         Group {
-            if let artwork = track.artwork,
-               let image = artwork.image(at: CGSize(width: size, height: size)) {
+            // ViewModel のキャッシュを使う（ライブラリ曲・ファイル曲両対応、
+            // 再描画のたびに image(at:) を呼び直さない）
+            if let image = viewModel.currentArtworkImage {
                 Image(uiImage: image)
                     .resizable()
                     .aspectRatio(contentMode: .fill)
