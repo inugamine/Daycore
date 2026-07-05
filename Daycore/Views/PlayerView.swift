@@ -21,9 +21,18 @@ struct PlayerView: View {
                 .ignoresSafeArea()
             
             if let track = viewModel.currentTrack {
+                // iPadOS 27: ウィンドウは任意サイズにリサイズされる。
+                // 高さが足りる時は従来通り全体表示（バウンスもしない）、
+                // 足りない時だけスクロールにフォールバックして、
+                // コントロールが画面外に切れて操作不能になるのを防ぐ。
                 GeometryReader { geo in
                     let layout = PlayerLayout(height: geo.size.height, width: geo.size.width)
-                    playerContent(track, layout: layout)
+                    ScrollView {
+                        playerContent(track, layout: layout)
+                            .frame(maxWidth: .infinity)
+                            .frame(minHeight: geo.size.height)
+                    }
+                    .scrollBounceBehavior(.basedOnSize)
                 }
             } else {
                 emptyState

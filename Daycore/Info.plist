@@ -6,5 +6,16 @@
 	<array>
 		<string>audio</string>
 	</array>
+	<!-- iOS 27 SDK 必須要件 (ITMS-90870 対策):
+	     UILaunchScreen をここで明示定義する。
+	     ビルド設定側の INFOPLIST_KEY_UILaunchScreen_Generation は
+	     キー重複エラーを避けるため NO にしてある。
+	     UIColorName はアプリの背景色 DaycoreTheme.background と同じ色。
+	     ライトモード端末での起動時白フラッシュを防ぐ。 -->
+	<key>UILaunchScreen</key>
+	<dict>
+		<key>UIColorName</key>
+		<string>LaunchBackground</string>
+	</dict>
 </dict>
 </plist>
