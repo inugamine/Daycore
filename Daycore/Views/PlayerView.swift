@@ -212,8 +212,7 @@ struct PlayerView: View {
             }
             
             Button {
-                let newTime = max(0, viewModel.audioEngine.currentTime - 15)
-                viewModel.audioEngine.seek(to: newTime)
+                viewModel.skip(by: -15)
             } label: {
                 Image(systemName: "gobackward.15")
                     .font(.system(size: buttonSize * 0.45))
@@ -228,8 +227,7 @@ struct PlayerView: View {
             }
             
             Button {
-                let newTime = min(viewModel.duration, viewModel.audioEngine.currentTime + 15)
-                viewModel.audioEngine.seek(to: newTime)
+                viewModel.skip(by: 15)
             } label: {
                 Image(systemName: "goforward.15")
                     .font(.system(size: buttonSize * 0.45))
@@ -289,11 +287,14 @@ struct PlayerView: View {
     
     private func parameterSliders(spacing: CGFloat) -> some View {
         VStack(spacing: spacing) {
+            // audioEngine を直叩きしないこと。
+            // ViewModel を経由しないと Now Playing への再送が抜け、
+            // ロック画面の進捗バーだけが古い rate のまま走り続ける。
             DaycoreSlider(
                 label: "Speed",
                 value: Binding(
                     get: { viewModel.audioEngine.rate },
-                    set: { viewModel.audioEngine.rate = $0 }
+                    set: { viewModel.setRate($0) }
                 ),
                 range: 0.25...2.0,
                 icon: "speedometer",
@@ -304,7 +305,7 @@ struct PlayerView: View {
                 label: "Pitch",
                 value: Binding(
                     get: { viewModel.audioEngine.pitch },
-                    set: { viewModel.audioEngine.pitch = $0 }
+                    set: { viewModel.setPitch($0) }
                 ),
                 range: -12...12,
                 icon: "tuningfork",

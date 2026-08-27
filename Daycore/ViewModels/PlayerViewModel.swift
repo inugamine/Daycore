@@ -20,6 +20,7 @@ final class PlayerViewModel: ObservableObject {
     
     let audioEngine = AudioEngineService()
     var musicLibrary = MusicLibraryService()
+    private let nowPlaying = NowPlayingService()
     
     // MARK: - Published State
     
@@ -57,6 +58,9 @@ final class PlayerViewModel: ObservableObject {
     @Published var seekTime: TimeInterval = 0
     
     private var cancellables = Set<AnyCancellable>()
+
+    /// Now Playing への連続書き込みをまとめるためのタスク
+    private var nowPlayingCoalesceTask: Task<Void, Never>?
     
     /// 現在のトラックのアートワーク画像（Now Playing・再生画面 共用キャッシュ）
     @Published private(set) var currentArtworkImage: UIImage?
@@ -125,10 +129,12 @@ final class PlayerViewModel: ObservableObject {
         case .one:
             // 1曲リピート: エンジンを止めずに先頭から再スケジュール
             audioEngine.replay()
+            postNowPlayingUpdate()
         case .all:
             playNextTrack()
         case .off:
-            break
+            // 再生は終わっている。ロック画面にも停止を反映する。
+            postNowPlayingUpdate()
         }
     }
     
@@ -161,6 +167,28 @@ final class PlayerViewModel: ObservableObject {
         }
     }
     
+    /// 前の曲へ。ただし3秒以上再生している場合は「頭出し」にする。
+    /// ロック画面からも呼ばれるので位置判定に livePosition を使う。
+    private func playPreviousTrack() {
+        if audioEngine.livePosition > 3 {
+            audioEngine.seek(to: 0)
+            postNowPlayingUpdate()
+            return
+        }
+
+        let allTracks = musicLibrary.filteredTracks
+        guard !allTracks.isEmpty,
+              let current = currentTrack,
+              let idx = allTracks.firstIndex(where: { $0.id == current.id }) else {
+            audioEngine.seek(to: 0)
+            postNowPlayingUpdate()
+            return
+        }
+
+        let prevIdx = (idx - 1 + allTracks.count) % allTracks.count
+        selectTrack(allTracks[prevIdx])
+    }
+
     // MARK: - Playback
     
     func selectTrack(_ track: Track) {
@@ -189,6 +217,14 @@ final class PlayerViewModel: ObservableObject {
     func seekEnded() {
         audioEngine.seek(to: seekTime)
         isSeeking = false
+        postNowPlayingUpdate()
+    }
+
+    /// 現在位置から相対でシークする（±15秒ボタン / ロック画面用）
+    func skip(by seconds: TimeInterval) {
+        let target = min(max(0, audioEngine.livePosition + seconds), duration)
+        audioEngine.seek(to: target)
+        postNowPlayingUpdate()
     }
     
     // MARK: - Presets
@@ -196,39 +232,66 @@ final class PlayerViewModel: ObservableObject {
     func selectPreset(_ preset: AudioPreset) {
         selectedPreset = preset
         audioEngine.applyPreset(preset)
+        // rate が変わったら必ず再送する。
+        // ロック画面は playbackRate を使って自前で時間を進めるため、
+        // 送らないと進捗バーだけが違う速度で走り続ける。
+        postNowPlayingUpdate()
+    }
+
+    /// 再生速度を直接変更する（Speed スライダー用）。
+    /// View から audioEngine.rate を直叩きすると Now Playing を素通りするので、
+    /// 必ずここを通すこと。
+    func setRate(_ newRate: Float) {
+        audioEngine.rate = newRate
+        postNowPlayingUpdateCoalesced()
+    }
+
+    /// ピッチを直接変更する（Pitch スライダー用）
+    func setPitch(_ newPitch: Float) {
+        audioEngine.pitch = newPitch
+        postNowPlayingUpdateCoalesced()
     }
     
     // MARK: - Now Playing Info（ロック画面表示）
     
-    /// Swift 6 の @MainActor と MPNowPlayingInfoCenter が要求する
-    /// メインディスパッチキューがズレるため、
-    /// 値を先に取り出して DispatchQueue.main.async で直接書き込む
+    /// 現在の状態をロック画面 / コントロールセンターへ送る。
+    ///
+    /// **状態が変わる経路からは必ずこれを呼ぶこと。**
+    /// 送り忘れはそのまま「ロック画面だけ現実とズレている」状態になる。
     private func postNowPlayingUpdate() {
-        guard let track = currentTrack else { return }
-        
-        let title = track.title
-        let artist = track.artist
-        let dur = duration
-        let time = audioEngine.currentTime
-        let rate = audioEngine.isPlaying ? audioEngine.rate : Float(0)
-        
-        // アートワークは Sendable な UIImage としてここで取り出し、
-        // MPMediaItemArtwork の生成は nonisolated ファクトリに任せる。
-        // （@MainActor 文脈で生成すると requestHandler が MainActor 隔離を継承し、
-        //   システムが別スレッドから呼んだ瞬間に dispatch_assert_queue_fail で落ちる）
-        let artworkImage = currentArtworkImage
-        
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-            var info = [String: Any]()
-            info[MPMediaItemPropertyTitle] = title
-            info[MPMediaItemPropertyArtist] = artist
-            info[MPMediaItemPropertyPlaybackDuration] = dur
-            info[MPNowPlayingInfoPropertyElapsedPlaybackTime] = time
-            info[MPNowPlayingInfoPropertyPlaybackRate] = rate
-            if let artworkImage {
-                info[MPMediaItemPropertyArtwork] = Self.makeNowPlayingArtwork(artworkImage)
-            }
-            MPNowPlayingInfoCenter.default().nowPlayingInfo = info
+        nowPlayingCoalesceTask?.cancel()
+        nowPlayingCoalesceTask = nil
+
+        guard let track = currentTrack else {
+            nowPlaying.clear()
+            return
+        }
+
+        nowPlaying.update(
+            NowPlayingService.Snapshot(
+                trackID: track.id,
+                title: track.title,
+                artist: track.artist,
+                albumTitle: track.albumTitle,
+                duration: duration,
+                // currentTime ではなく livePosition を使うこと。
+                // ロック中は CADisplayLink が止まって currentTime が凍るため、
+                // そのまま送るとロック画面の時計が過去に飛ぶ。
+                elapsed: audioEngine.livePosition,
+                rate: audioEngine.isPlaying ? audioEngine.rate : 0,
+                artworkImage: currentArtworkImage
+            )
+        )
+    }
+
+    /// スライダーのドラッグのような連続操作では、
+    /// 毎フレーム IPC を叩かずに短時間まとめて 1 回だけ送る。
+    private func postNowPlayingUpdateCoalesced() {
+        nowPlayingCoalesceTask?.cancel()
+        nowPlayingCoalesceTask = Task { [weak self] in
+            try? await Task.sleep(for: .milliseconds(150))
+            guard !Task.isCancelled else { return }
+            self?.postNowPlayingUpdate()
         }
     }
     
@@ -236,7 +299,12 @@ final class PlayerViewModel: ObservableObject {
     private func loadArtworkForCurrentTrack(_ track: Track) {
         switch track.source {
         case .library:
-            // MPMediaItemArtwork.image(at:) はメインスレッドで呼ぶこと
+            // MPMediaItemArtwork.image(at:) はメインスレッドで呼ぶこと。
+            //
+            // 注意: この制約の根拠は未確認。過去の実機クラッシュを踏んで
+            // 書かれた可能性があるため、推測でバックグラウンドに逃がすのはやめている。
+            // 代償は曲選択時にメインスレッドで 1 枚デコードが走ること。
+            // 変更するなら先に実機でクラッシュしないことを確かめろ。
             currentArtworkImage = track.artwork?.image(at: CGSize(width: 600, height: 600))
         case .file(let url):
             currentArtworkImage = nil
@@ -254,13 +322,6 @@ final class PlayerViewModel: ObservableObject {
         guard currentTrack?.id == id, let image else { return }
         currentArtworkImage = image
         postNowPlayingUpdate()
-    }
-    
-    /// MPMediaItemArtwork を nonisolated 文脈で生成するファクトリ。
-    /// requestHandler が actor 隔離を継承しないようにするのが唯一の目的だ。
-    /// UIImage は不変で Sendable なのでどのスレッドから返しても安全。
-    nonisolated private static func makeNowPlayingArtwork(_ image: UIImage) -> MPMediaItemArtwork {
-        MPMediaItemArtwork(boundsSize: image.size) { _ in image }
     }
     
     /// ファイルに埋め込まれたアートワーク画像を読み出す（MP3/M4A 等）
@@ -282,28 +343,34 @@ final class PlayerViewModel: ObservableObject {
     // MARK: - Remote Commands (ロック画面コントロール)
     
     func setupRemoteCommands() {
-        let center = MPRemoteCommandCenter.shared()
-        
-        center.playCommand.addTarget { [weak self] _ in
-            self?.audioEngine.play()
-            return .success
-        }
-        
-        center.pauseCommand.addTarget { [weak self] _ in
-            self?.audioEngine.pause()
-            return .success
-        }
-        
-        center.togglePlayPauseCommand.addTarget { [weak self] _ in
-            self?.audioEngine.togglePlayPause()
-            return .success
-        }
-        
-        center.changePlaybackPositionCommand.addTarget { [weak self] event in
-            guard let event = event as? MPChangePlaybackPositionCommandEvent else { return .commandFailed }
-            self?.audioEngine.seek(to: event.positionTime)
-            return .success
-        }
+        nowPlaying.registerCommands(
+            NowPlayingService.CommandHandlers(
+                play: { [weak self] in
+                    guard let self else { return }
+                    self.audioEngine.play()
+                    self.postNowPlayingUpdate()
+                },
+                pause: { [weak self] in
+                    guard let self else { return }
+                    self.audioEngine.pause()
+                    self.postNowPlayingUpdate()
+                },
+                togglePlayPause: { [weak self] in
+                    self?.togglePlayPause()
+                },
+                nextTrack: { [weak self] in
+                    self?.playNextTrack()
+                },
+                previousTrack: { [weak self] in
+                    self?.playPreviousTrack()
+                },
+                seek: { [weak self] time in
+                    guard let self else { return }
+                    self.audioEngine.seek(to: time)
+                    self.postNowPlayingUpdate()
+                }
+            )
+        )
     }
     
     // MARK: - Helpers

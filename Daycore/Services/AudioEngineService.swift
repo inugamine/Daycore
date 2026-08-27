@@ -221,6 +221,28 @@ final class AudioEngineService: ObservableObject {
     }
     
     // MARK: - Playback Controls
+
+    /// 現在の再生位置をノードから実測する。
+    ///
+    /// `currentTime` は CADisplayLink が更新するキャッシュだが、
+    /// **CADisplayLink は画面ロック中やバックグラウンドではフレームを打たない。**
+    /// つまりロック中の `currentTime` は「ロックした瞬間の値」で凍る。
+    /// ロック画面へ送る値には必ずこちらを使うこと。
+    var livePosition: TimeInterval {
+        guard let file = audioFile else { return 0 }
+        let sampleRate = file.processingFormat.sampleRate
+        guard sampleRate > 0 else { return 0 }
+
+        guard isPlaying,
+              let nodeTime = playerNode.lastRenderTime,
+              let playerTime = playerNode.playerTime(forNodeTime: nodeTime) else {
+            // 停止中は seekFrame が正しい位置を保持している
+            return min(max(0, Double(seekFrame) / sampleRate), duration)
+        }
+
+        let frames = playerTime.sampleTime + seekFrame
+        return min(max(0, Double(frames) / sampleRate), duration)
+    }
     
     func play() {
         guard let file = audioFile else { return }
@@ -276,14 +298,38 @@ final class AudioEngineService: ObservableObject {
     }
     
     func pause() {
-        playerNode.pause()
-        isPlaying = false
-        stopDisplayLink()
-        
-        // 現在位置を保存
+        // 位置の確定は停止より先に行うこと。
+        // 停止後の lastRenderTime は nil を返しうるため、
+        // 逆にすると seekFrame が更新されずに再生位置を丸ごと失う。
         if let nodeTime = playerNode.lastRenderTime,
            let playerTime = playerNode.playerTime(forNodeTime: nodeTime) {
             seekFrame = playerTime.sampleTime + seekFrame
+        }
+
+        // playerNode.pause() ではなく stop() を使うこと。
+        //
+        // pause() はキューもノード内部の再生時刻もリセットしない。
+        // 一方 play() は毎回 seekFrame から scheduleSegment で積み直すため、
+        // pause() のまま再開すると
+        //   - 古いセグメントの残りがキューに残ったまま二重に鳴る
+        //   - playerTime.sampleTime が通しで数え続けるのに
+        //     seekFrame にも加算済みなため、再開時に時間が二重計上されて飛ぶ
+        // という状態になる。
+        // stop() なら sampleTime が 0 に戻り、
+        // 「seekFrame から積み直す」という play() の前提と整合が取れる。
+        //
+        // ただし stop() は未再生バッファの完了コールバックを叩くので、
+        // 先に世代を進めて古いコールバックを無効化しないと
+        // 一時停止しただけで次の曲へ飛ぶ。
+        playbackGeneration += 1
+        playerNode.stop()
+
+        isPlaying = false
+        stopDisplayLink()
+
+        // DisplayLink が止まるので、ここで currentTime を自分で確定させる
+        if let sampleRate = audioFile?.processingFormat.sampleRate, sampleRate > 0 {
+            currentTime = min(Double(seekFrame) / sampleRate, duration)
         }
     }
     
